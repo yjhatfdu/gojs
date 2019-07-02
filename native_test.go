@@ -341,6 +341,7 @@ func TestNativeFunction3(t *testing.T) {
 	}
 }
 
+/*
 func TestNativeFunctionError(t *testing.T) {
 	ctx := NewContext()
 	defer ctx.Release()
@@ -374,6 +375,7 @@ func TestNativeFunctionError(t *testing.T) {
 
 	}
 }
+*/
 
 func TestNewNativeObject(t *testing.T) {
 	obj := &reflect_object{-1, 2, 3.0, "four"}
