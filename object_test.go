@@ -13,7 +13,7 @@ func TestNewObject(t *testing.T) {
 		t.Errorf("ctx.NewObject returned a nil poitner")
 	}
 	if !val.ToValue().IsObject() {
-		t.Errorf("ctx.NewObject failed to return an object (%v)", val.ToValue().Type)
+		t.Errorf("ctx.NewObject failed to return an object %v", val.ToValue().Type())
 	}
 }
 
@@ -59,7 +59,7 @@ func TestNewArray2(t *testing.T) {
 			t.Errorf("ctx.NewArray return object with 'length' property not a number")
 		}
 		if prop.ToNumberOrDie() != 2 {
-			t.Errorf("ctx.NewArray return object with 'length' not equal to 2", prop.ToNumberOrDie())
+			t.Errorf("ctx.NewArray return object with 'length' not equal to 2, %v", prop.ToNumberOrDie())
 		}
 	}
 }

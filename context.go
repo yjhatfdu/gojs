@@ -2,8 +2,16 @@ package gojs
 
 // #include <stdlib.h>
 // #include <JavaScriptCore/JSContextRef.h>
+// typedef bool (*JSShouldTerminateCallback) (JSContextRef ctx, void* context);
+// void JSContextGroupSetExecutionTimeLimit(JSContextGroupRef group, double limit, void* callback, JSContextRef context);
+// void JSContextGroupClearExecutionTimeLimit(JSContextGroupRef group);
+// bool shouldTerminate(JSContextRef ctx, void* context){
+// return 1;}
 import "C"
-import "unsafe"
+import (
+	"time"
+	"unsafe"
+)
 
 // Context wraps a JavaScriptCore JSContextRef.
 type Context struct {
@@ -48,4 +56,14 @@ func (ctx *Context) Release() {
 func (ctx *Context) GlobalObject() *Object {
 	ret := C.JSContextGetGlobalObject(ctx.ref)
 	return ctx.newObject(ret)
+}
+
+func (ctx *Context) SetTimeLimit(duration time.Duration) {
+	group := C.JSContextGetGroup(ctx.ref)
+	C.JSContextGroupSetExecutionTimeLimit(group, C.double(duration.Seconds()), nil, nil)
+}
+
+func (ctx *Context) ClearTimeLimit() {
+	group := C.JSContextGetGroup(ctx.ref)
+	C.JSContextGroupClearExecutionTimeLimit(group)
 }

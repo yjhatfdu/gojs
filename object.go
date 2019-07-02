@@ -6,7 +6,6 @@ package gojs
 // #include "callback.h"
 import "C"
 import "unsafe"
-import "log"
 
 type Object struct {
 	ref C.JSObjectRef
@@ -130,10 +129,10 @@ func (ctx *Context) NewRegExpFromValues(parameters []*Value) (*Object, error) {
 func (ctx *Context) NewFunction(name string, parameters []string, body string, source_url string, starting_line_number int) (*Object, error) {
 	Cname := NewString(name)
 	defer Cname.Release()
-
-	Cparameters := make([]C.JSStringRef, len(parameters))
+	paramLens := len(parameters)
+	Cparameters := make([]C.JSStringRef, paramLens)
 	defer release_jsstringref_array(Cparameters)
-	for i := 0; i < len(parameters); i++ {
+	for i := 0; i < paramLens; i++ {
 		Cparameters[i] = (C.JSStringRef)(unsafe.Pointer(NewString(parameters[i])))
 	}
 
@@ -145,11 +144,14 @@ func (ctx *Context) NewFunction(name string, parameters []string, body string, s
 		sourceRef = NewString(source_url)
 		defer sourceRef.Release()
 	}
-
+	var argsPointer *C.JSStringRef
+	if paramLens > 0 {
+		argsPointer = &Cparameters[0]
+	}
 	errVal := ctx.newErrorValue()
 	ret := C.JSObjectMakeFunction(ctx.ref,
 		(C.JSStringRef)(unsafe.Pointer(Cname)),
-		C.unsigned(len(Cparameters)), &Cparameters[0],
+		C.unsigned(paramLens), argsPointer,
 		(C.JSStringRef)(unsafe.Pointer(Cbody)),
 		(C.JSStringRef)(unsafe.Pointer(sourceRef)),
 		C.int(starting_line_number), &errVal.ref)
@@ -261,7 +263,7 @@ func (obj *Object) CallAsFunction(thisObject *Object, parameters []*Value) (*Val
 	cParameters, n := obj.ctx.newCValueArray(parameters)
 	if thisObject == nil {
 		thisObject = obj.ctx.newObject(nil)
-		log.Println(thisObject.ref)
+		//log.Println(thisObject.ref)
 	}
 
 	ret := C.JSObjectCallAsFunction(obj.ctx.ref, obj.ref, thisObject.ref, n, cParameters, &errVal.ref)

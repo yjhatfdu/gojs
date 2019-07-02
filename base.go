@@ -1,11 +1,10 @@
 package gojs
 
 // #include <stdlib.h>
-// #cgo pkg-config: javascriptcoregtk-3.0
+// #cgo LDFLAGS: -ljsc
 // #include <JavaScriptCore/JSBase.h>
 import "C"
 import (
-	"log"
 	"unsafe"
 )
 
@@ -24,7 +23,7 @@ func (ctx *Context) EvaluateScript(script string, thisObject *Object, sourceURL 
 		thisObject = ctx.NewEmptyObject()
 	}
 
-	log.Println("About to evaluate script:", script, thisObject, sourceURL, startingLineNumber)
+	//log.Println("About to evaluate script:", script, thisObject, sourceURL, startingLineNumber)
 
 	errVal := ctx.newErrorValue()
 	ret := C.JSEvaluateScript(ctx.ref,

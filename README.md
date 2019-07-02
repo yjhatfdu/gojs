@@ -7,6 +7,7 @@ Update (2013/10/16): The test suite does not work at all, but it compiles again 
 
 Update (2013/12/26): Thanks to @sqs, the test suite now passes. This library should still be considered "experimental", but should work.
 
+Update (2019/7/1): Passed test suite under Go 1.12, add support for execution time limit
 ### Install
 
 	go get github.com/crazy2be/gojs

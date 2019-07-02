@@ -10,14 +10,16 @@ import (
 	"fmt"
 	"log"
 	"reflect"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 )
 
 type object_data struct {
-	typ    unsafe.Pointer
-	val    unsafe.Pointer
+	typ    reflect.Type
+	val    reflect.Value
 	method int
+	uid    int64
 }
 
 var (
@@ -25,7 +27,8 @@ var (
 	nativefunction C.JSClassRef
 	nativeobject   C.JSClassRef
 	nativemethod   C.JSClassRef
-	objects        map[uintptr]*object_data
+	objects        map[int64]*object_data
+	uid            int64
 )
 
 type Stringer interface {
@@ -58,7 +61,7 @@ func init() {
 	}
 
 	// Create map for native objects
-	objects = make(map[uintptr]*object_data)
+	objects = make(map[int64]*object_data)
 }
 
 // Given a slice of go-style Values, this function allocates a new array of c-style values and returns a pointer to the first element in the array, along with the length of the array.
@@ -239,15 +242,17 @@ func setNativeFieldFromJSValue(field reflect.Value, ctx *Context, value *Value) 
 // Finalizer from JavaScriptCore for all native objects
 //---------------------------------------------------------
 
-func register(data *object_data) {
-	id := uintptr(unsafe.Pointer(data))
+func register(data *object_data) int64 {
+	id := atomic.AddInt64(&uid, 1)
+	data.uid = id
 	objects[id] = data
+	return id
 }
 
 //export finalize_go
 func finalize_go(data unsafe.Pointer) {
 	// Called from JavaScriptCore finalizer methods
-	id := uintptr(data)
+	id := *(*int64)(data)
 	delete(objects, id)
 }
 
@@ -259,14 +264,13 @@ type GoFunctionCallback func(ctx *Context, obj *Object, thisObject *Object, argu
 
 func (ctx *Context) NewFunctionWithCallback(callback GoFunctionCallback) *Object {
 	// Register the native Go object
-	t := reflect.TypeOf(callback)
-	v := reflect.ValueOf(callback)
 	data := &object_data{
-		unsafe.Pointer(&t),
-		unsafe.Pointer(&v),
-		0}
-	register(data)
-	ret := C.JSObjectMake(ctx.ref, nativecallback, unsafe.Pointer(data))
+		reflect.TypeOf(callback),
+		reflect.ValueOf(callback),
+		0, 0}
+	id := register(data)
+
+	ret := C.JSObjectMake(ctx.ref, nativecallback, unsafe.Pointer(&id))
 	return ctx.newObject(ret)
 }
 
@@ -279,8 +283,8 @@ func nativecallback_CallAsFunction_go(data_ptr unsafe.Pointer, rawCtx C.JSContex
 		}
 	}()
 
-	data := (*object_data)(data_ptr)
-	ret := (*reflect.Value)(data.val).Interface().(GoFunctionCallback)(
+	data := objects[*(*int64)(data_ptr)]
+	ret := data.val.Interface().(GoFunctionCallback)(
 		ctx, ctx.newObject(function), ctx.newObject(thisObject), ctx.newGoValueArray(arguments, argumentCount) /*(*[1 << 14]*Value)(arguments)[0:argumentCount]*/)
 	if ret == nil {
 		return unsafe.Pointer(nil)
@@ -297,16 +301,15 @@ func (ctx *Context) NewFunctionWithNative(fn interface{}) *Object {
 	if typ := reflect.TypeOf(fn); typ.NumOut() > 1 {
 		panic("Bad native function:  too many output parameters")
 	}
-	t := reflect.TypeOf(fn)
-	v := reflect.ValueOf(fn)
+
 	// Create Go-side registration
 	data := &object_data{
-		unsafe.Pointer(&t),
-		unsafe.Pointer(&v),
-		0}
-	register(data)
+		reflect.TypeOf(fn),
+		reflect.ValueOf(fn),
+		0, 0}
+	id := register(data)
 
-	ret := C.JSObjectMake(ctx.ref, nativefunction, unsafe.Pointer(data))
+	ret := C.JSObjectMake(ctx.ref, nativefunction, unsafe.Pointer(&id))
 	return ctx.newObject(ret)
 }
 
@@ -316,14 +319,14 @@ func docall(ctx *Context, val reflect.Value, argumentCount uint, arguments unsaf
 	var in []reflect.Value
 	if argumentCount != 0 {
 		valarr := ctx.newGoValueArray(arguments, argumentCount)
-		log.Println("Converted pointer to go-style array", valarr)
-		log.Println("Converting to relfect.Value s")
+		//log.Println("Converted pointer to go-style array", valarr)
+		//log.Println("Converting to relfect.Value s")
 		in = ctx.jsValuesToReflect(valarr)
 	}
 
-	log.Println("Converted arguments to native go reflect types. About to actually call the callback function...")
+	//log.Println("Converted arguments to native go reflect types. About to actually call the callback function...")
 
-	log.Println(in)
+	//log.Println(in)
 
 	// Step two, perform the call
 	out := val.Call(in)
@@ -346,9 +349,9 @@ func nativefunction_CallAsFunction_go(data_ptr unsafe.Pointer, rawCtx C.JSContex
 	}()
 
 	// recover the object
-	data := (*object_data)(data_ptr)
-	typ := *(*reflect.Type)(data.typ)
-	val := *(*reflect.Value)(data.val)
+	data := objects[*(*int64)(data_ptr)]
+	typ := data.typ
+	val := data.val
 
 	// Do the number of input parameters match?
 	if typ.NumIn() != int(argumentCount) {
@@ -371,15 +374,14 @@ func nativefunction_CallAsFunction_go(data_ptr unsafe.Pointer, rawCtx C.JSContex
 func (ctx *Context) NewNativeObject(obj interface{}) *Object {
 	// The obj must be a pointer to a struct
 	// TODO:  add error checking code
-	t := reflect.TypeOf(obj)
-	v := reflect.ValueOf(obj)
-	data := &object_data{
-		unsafe.Pointer(&t),
-		unsafe.Pointer(&v),
-		0}
-	register(data)
 
-	ret := C.JSObjectMake(ctx.ref, nativeobject, unsafe.Pointer(data))
+	data := &object_data{
+		reflect.TypeOf(obj),
+		reflect.ValueOf(obj),
+		0, 0}
+	id := register(data)
+
+	ret := C.JSObjectMake(ctx.ref, nativeobject, unsafe.Pointer(&id))
 	return ctx.newObject(ret)
 }
 
@@ -390,10 +392,10 @@ func nativeobject_GetProperty_go(data_ptr, uctx, _, propertyName unsafe.Pointer,
 	name := (*String)(propertyName).String()
 
 	// Reconstruct the object interface
-	data := (*object_data)(data_ptr)
+	data := objects[*(*int64)(data_ptr)]
 
 	// Drill down through reflect to find the property
-	val := *(*reflect.Value)(data.val)
+	val := data.val
 	if ptrvalue := val; ptrvalue.Kind() == reflect.Ptr {
 		val = ptrvalue.Elem()
 	}
@@ -409,7 +411,7 @@ func nativeobject_GetProperty_go(data_ptr, uctx, _, propertyName unsafe.Pointer,
 	}
 
 	// Can we locate a method with the proper name?
-	typ := *(*reflect.Type)(data.typ)
+	typ := data.typ
 	for lp := 0; lp < typ.NumMethod(); lp++ {
 		if typ.Method(lp).Name == name {
 			ret := newNativeMethod(ctx, data, lp)
@@ -428,10 +430,10 @@ func nativeobject_SetProperty_go(data_ptr unsafe.Pointer, rawCtx C.JSContextRef,
 	name := newStringFromRef(propertyName).String()
 
 	// Reconstruct the object interface
-	data := (*object_data)(data_ptr)
+	data := objects[*(*int64)(data_ptr)]
 
 	// Drill down through reflect to find the property
-	val := *(*reflect.Value)(data.val)
+	val := data.val
 	if ptrvalue := val; ptrvalue.Kind() == reflect.Ptr {
 		val = ptrvalue.Elem()
 	}
@@ -457,10 +459,10 @@ func nativeobject_SetProperty_go(data_ptr unsafe.Pointer, rawCtx C.JSContextRef,
 //export nativeobject_ConvertToString_go
 func nativeobject_ConvertToString_go(data_ptr, ctx, obj unsafe.Pointer) unsafe.Pointer {
 	// Reconstruct the object interface
-	data := (*object_data)(data_ptr)
+	data := objects[*(*int64)(data_ptr)]
 
 	// Can we get a string?
-	if stringer, ok := (*(*reflect.Value)(data.val)).Interface().(Stringer); ok {
+	if stringer, ok := data.val.Interface().(Stringer); ok {
 		str := stringer.String()
 		ret := NewString(str)
 		return unsafe.Pointer(ret)
@@ -477,10 +479,10 @@ func newNativeMethod(ctx *Context, obj *object_data, method int) *Object {
 	data := &object_data{
 		obj.typ,
 		obj.val,
-		method}
-	register(data)
+		method, 0}
+	id := register(data)
 
-	ret := C.JSObjectMake(ctx.ref, nativemethod, unsafe.Pointer(data))
+	ret := C.JSObjectMake(ctx.ref, nativemethod, unsafe.Pointer(&id))
 	return ctx.newObject(ret)
 }
 
@@ -494,10 +496,10 @@ func nativemethod_CallAsFunction_go(data_ptr unsafe.Pointer, rawCtx C.JSContextR
 	}()
 
 	// Reconstruct the object interface
-	data := (*object_data)(data_ptr)
+	data := objects[*(*int64)(data_ptr)]
 
 	// Get the method
-	method := (*(*reflect.Value)(data.val)).Method(data.method)
+	method := data.val.Method(data.method)
 
 	// Do the number of input parameters match?
 	if method.Type().NumIn() != int(argumentCount) {
