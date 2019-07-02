@@ -1,6 +1,7 @@
 package gojs
 
 import (
+	"github.com/pkg/errors"
 	"log"
 	"syscall"
 	"testing"
@@ -134,10 +135,10 @@ func TestNewCValueArray(t *testing.T) {
 
 func TestNewFunctionWithCallback(t *testing.T) {
 	var flag bool
-	callback := func(ctx *Context, obj *Object, thisObject *Object, _ []*Value) *Value {
+	callback := func(ctx *Context, obj *Object, thisObject *Object, _ []*Value) (*Value, error) {
 		tlog(t, "In callback function!")
 		flag = true
-		return nil
+		return nil, nil
 	}
 
 	ctx := NewContext()
@@ -166,10 +167,10 @@ func TestNewFunctionWithCallback(t *testing.T) {
 }
 
 func TestNewFunctionWithCallback2(t *testing.T) {
-	callback := func(ctx *Context, obj *Object, thisObject *Object, args []*Value) *Value {
+	callback := func(ctx *Context, obj *Object, thisObject *Object, args []*Value) (*Value, error) {
 		tlog(t, "In callback function!")
 		if len(args) != 2 {
-			return nil
+			return nil, nil
 		}
 		tlog(t, "Attempting to convert args to numbers...", args)
 		tlog(t, ctx)
@@ -183,9 +184,7 @@ func TestNewFunctionWithCallback2(t *testing.T) {
 		tlog(t, err)
 		tlog(t, "Converted first arg...")
 		b := args[1].ToNumberOrDie()
-		return ctx.NewNumberValue(a + b)
-		return ctx.NewNumberValue(1)
-		return ctx.newValue(nil)
+		return ctx.NewNumberValue(a + b), nil
 	}
 
 	tlog(t, "Acquiring context!")
@@ -215,15 +214,14 @@ func TestNewFunctionWithCallbackPanic(t *testing.T) {
 	var error_msgs = []string{"error from go!", syscall.ENOMEM.Error()}
 
 	callbacks = append(callbacks,
-		func(ctx *Context, obj *Object, thisObject *Object, _ []*Value) *Value {
-			panic("error from go!")
-			return nil
+		func(ctx *Context, obj *Object, thisObject *Object, _ []*Value) (*Value, error) {
+			return nil, errors.Errorf("error from go!")
 		},
 	)
 	callbacks = append(callbacks,
-		func(ctx *Context, obj *Object, thisObject *Object, _ []*Value) *Value {
-			panic(syscall.ENOMEM)
-			return nil
+		func(ctx *Context, obj *Object, thisObject *Object, _ []*Value) (*Value, error) {
+			//panic(syscall.ENOMEM)
+			return nil, errors.New("cannot allocate memory")
 		},
 	)
 
@@ -343,12 +341,13 @@ func TestNativeFunction3(t *testing.T) {
 	}
 }
 
-func TestNativeFunctionPanic(t *testing.T) {
+func TestNativeFunctionError(t *testing.T) {
 	ctx := NewContext()
 	defer ctx.Release()
 
 	callbacks := []func(){
-		func() { panic("Panic!") }, func() { panic(syscall.ENOMEM) }}
+		func() { panic("Panic!") },
+		func() { panic(syscall.ENOMEM) }}
 
 	for _, callback := range callbacks {
 

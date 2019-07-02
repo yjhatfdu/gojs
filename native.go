@@ -260,7 +260,7 @@ func finalize_go(data unsafe.Pointer) {
 // Native Callback
 //---------------------------------------------------------
 
-type GoFunctionCallback func(ctx *Context, obj *Object, thisObject *Object, arguments []*Value) (ret *Value)
+type GoFunctionCallback func(ctx *Context, obj *Object, thisObject *Object, arguments []*Value) (ret *Value, err error)
 
 func (ctx *Context) NewFunctionWithCallback(callback GoFunctionCallback) *Object {
 	// Register the native Go object
@@ -277,15 +277,19 @@ func (ctx *Context) NewFunctionWithCallback(callback GoFunctionCallback) *Object
 //export nativecallback_CallAsFunction_go
 func nativecallback_CallAsFunction_go(data_ptr unsafe.Pointer, rawCtx C.JSContextRef, function C.JSObjectRef, thisObject C.JSObjectRef, argumentCount uint, arguments unsafe.Pointer, exception *C.JSValueRef) unsafe.Pointer {
 	ctx := NewContextFrom(RawContext(rawCtx))
-	defer func() {
-		if r := recover(); r != nil {
-			*exception = panicArgToJSString(ctx, r).ref
-		}
-	}()
+	//defer func() {
+	//	if r := recover(); r != nil {
+	//		*exception = panicArgToJSString(ctx, r).ref
+	//	}
+	//}()
 
 	data := objects[*(*int64)(data_ptr)]
-	ret := data.val.Interface().(GoFunctionCallback)(
+	ret, err := data.val.Interface().(GoFunctionCallback)(
 		ctx, ctx.newObject(function), ctx.newObject(thisObject), ctx.newGoValueArray(arguments, argumentCount) /*(*[1 << 14]*Value)(arguments)[0:argumentCount]*/)
+	if err != nil {
+		*exception = ctx.NewStringValue(err.Error()).ref
+		return nil
+	}
 	if ret == nil {
 		return unsafe.Pointer(nil)
 	}
@@ -358,7 +362,7 @@ func nativefunction_CallAsFunction_go(data_ptr unsafe.Pointer, rawCtx C.JSContex
 		panic("Incorrect number of function arguments")
 	}
 
-	log.Println("About to docall()!")
+	//log.Println("About to docall()!")
 
 	ret := docall(ctx, val, argumentCount, arguments)
 	if ret == nil {
