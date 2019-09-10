@@ -19,7 +19,7 @@ type object_data struct {
 	typ    reflect.Type
 	val    reflect.Value
 	method int
-	uid    int64
+	uid    *int64
 }
 
 var (
@@ -244,7 +244,7 @@ func setNativeFieldFromJSValue(field reflect.Value, ctx *Context, value *Value) 
 
 func register(data *object_data) int64 {
 	id := atomic.AddInt64(&uid, 1)
-	data.uid = id
+	data.uid = &id
 	objects[id] = data
 	return id
 }
@@ -267,7 +267,7 @@ func (ctx *Context) NewFunctionWithCallback(callback GoFunctionCallback) *Object
 	data := &object_data{
 		reflect.TypeOf(callback),
 		reflect.ValueOf(callback),
-		0, 0}
+		0, nil}
 	id := register(data)
 
 	ret := C.JSObjectMake(ctx.ref, nativecallback, unsafe.Pointer(&id))
@@ -310,7 +310,7 @@ func (ctx *Context) NewFunctionWithNative(fn interface{}) *Object {
 	data := &object_data{
 		reflect.TypeOf(fn),
 		reflect.ValueOf(fn),
-		0, 0}
+		0, nil}
 	id := register(data)
 
 	ret := C.JSObjectMake(ctx.ref, nativefunction, unsafe.Pointer(&id))
@@ -382,7 +382,7 @@ func (ctx *Context) NewNativeObject(obj interface{}) *Object {
 	data := &object_data{
 		reflect.TypeOf(obj),
 		reflect.ValueOf(obj),
-		0, 0}
+		0, nil}
 	id := register(data)
 
 	ret := C.JSObjectMake(ctx.ref, nativeobject, unsafe.Pointer(&id))
@@ -483,7 +483,7 @@ func newNativeMethod(ctx *Context, obj *object_data, method int) *Object {
 	data := &object_data{
 		obj.typ,
 		obj.val,
-		method, 0}
+		method, nil}
 	id := register(data)
 
 	ret := C.JSObjectMake(ctx.ref, nativemethod, unsafe.Pointer(&id))
